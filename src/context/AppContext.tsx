@@ -76,7 +76,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setPages(prev => [...prev, ...newPages]);
   }, []);
 
-  // Optimized: Uses functional updates to prevent UI lag during selection toggles
+  // Optimized: Us
   const togglePageSelection = useCallback((id: string) => {
     setPages(prev => prev.map(page => 
       page.id === id ? { ...page, selected: !page.selected } : page
