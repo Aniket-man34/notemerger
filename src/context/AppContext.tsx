@@ -1,168 +1,160 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-import type { PageImage, UploadedFile, LayoutSettings, EnhancementSettings, AppStep, Toast } from '../types';
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { PageImage, UploadedFile, LayoutSettings, EnhancementSettings, AppStep, Toast } from '../types';
 
-interface AppState {
+interface AppContextType {
   step: AppStep;
-  maxStep: AppStep;
-  darkMode: boolean;
-  files: UploadedFile[];
   pages: PageImage[];
+  files: UploadedFile[];
   layoutSettings: LayoutSettings;
   enhancementSettings: EnhancementSettings;
+  outputFormat: 'pdf' | 'png-zip';
+  darkMode: boolean;
   toasts: Toast[];
   processing: boolean;
   processProgress: number;
   processMessage: string;
-  outputFormat: 'pdf' | 'png-zip';
   finalBlob: Blob | null;
-}
-
-interface AppContextType extends AppState {
-  setStep: (s: AppStep) => void;
-  toggleDarkMode: () => void;
-  setFiles: (f: UploadedFile[]) => void;
-  addFiles: (f: UploadedFile[]) => void;
-  removeFile: (id: string) => void;
-  moveFileUp: (id: string) => void;
-  moveFileDown: (id: string) => void;
-  setPages: (p: PageImage[]) => void;
+  setStep: (step: AppStep) => void;
+  addPages: (newPages: PageImage[]) => void;
+  setFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   togglePageSelection: (id: string) => void;
   selectAll: () => void;
   deselectAll: () => void;
   invertSelection: () => void;
-  setLayoutSettings: (s: Partial<LayoutSettings>) => void;
-  setEnhancementSettings: (s: Partial<EnhancementSettings>) => void;
+  updateLayout: (settings: Partial<LayoutSettings>) => void;
+  updateEnhancement: (settings: Partial<EnhancementSettings>) => void;
+  setOutputFormat: (format: 'pdf' | 'png-zip') => void;
+  toggleDarkMode: () => void;
   addToast: (type: Toast['type'], message: string) => void;
   removeToast: (id: string) => void;
-  setProcessing: (p: boolean) => void;
-  setProcessProgress: (p: number) => void;
-  setProcessMessage: (m: string) => void;
-  setOutputFormat: (f: 'pdf' | 'png-zip') => void;
-  setFinalBlob: (b: Blob | null) => void;
+  setProcessing: (processing: boolean) => void;
+  setProcessProgress: (progress: number) => void;
+  setProcessMessage: (message: string) => void;
+  setFinalBlob: (blob: Blob | null) => void;
   resetApp: () => void;
 }
 
-const defaultLayout: LayoutSettings = {
-  pageSize: 'a4',
-  orientation: 'portrait',
-  rows: 1,
-  cols: 1,
-  pageNumbers: false,
-  pageNumberPosition: 'bottom-center',
-  pageNumberSize: 'medium',
-  startingNumber: 1,
-};
+const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const defaultEnhancement: EnhancementSettings = {
-  invert: false,
-  clearBackground: false,
-  grayscale: false,
-  blackAndWhite: false,
-  bwThreshold: 128,
-  dpi: 150,
-  logoRemoval: null,
-};
-
-const AppContext = createContext<AppContextType | null>(null);
-
-export function AppProvider({ children }: { children: ReactNode }) {
-  const [step, _setStep] = useState<AppStep>(1);
-  const [maxStep, setMaxStep] = useState<AppStep>(1);
-  const [darkMode, setDarkMode] = useState(false);
-  const [files, setFilesState] = useState<UploadedFile[]>([]);
-  const [pages, setPagesState] = useState<PageImage[]>([]);
-  const [layoutSettings, setLayoutState] = useState<LayoutSettings>(defaultLayout);
-  const [enhancementSettings, setEnhancementState] = useState<EnhancementSettings>(defaultEnhancement);
+export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [step, setStep] = useState<AppStep>(1);
+  const [pages, setPages] = useState<PageImage[]>([]);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [outputFormat, setOutputFormat] = useState<'pdf' | 'png-zip'>('pdf');
+  const [darkMode, setDarkMode] = useState(() => 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [processing, setProcessing] = useState(false);
   const [processProgress, setProcessProgress] = useState(0);
   const [processMessage, setProcessMessage] = useState('');
-  const [outputFormat, setOutputFormat] = useState<'pdf' | 'png-zip'>('pdf');
   const [finalBlob, setFinalBlob] = useState<Blob | null>(null);
 
-  const setStep = useCallback((s: AppStep) => {
-    _setStep(s);
-    setMaxStep(prev => Math.max(prev, s) as AppStep);
+  const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>({
+    pageSize: 'original',
+    orientation: 'portrait',
+    rows: 2,
+    cols: 2,
+    pageNumbers: true,
+    pageNumberPosition: 'bottom-center',
+    pageNumberSize: 'medium',
+    startingNumber: 1,
+  });
+
+  const [enhancementSettings, setEnhancementSettings] = useState<EnhancementSettings>({
+    invert: false,
+    clearBackground: false,
+    grayscale: false,
+    blackAndWhite: false,
+    bwThreshold: 150,
+    dpi: 200,
+    logoRemoval: null,
+  });
+
+  // Optimized: Uses functional updates to handle rapid batch processing
+  const addPages = useCallback((newPages: PageImage[]) => {
+    setPages(prev => [...prev, ...newPages]);
   }, []);
 
-  const toggleDarkMode = useCallback(() => setDarkMode(p => !p), []);
-
-  const setFiles = useCallback((f: UploadedFile[]) => setFilesState(f), []);
-  const addFiles = useCallback((f: UploadedFile[]) => setFilesState(prev => [...prev, ...f]), []);
-  const removeFile = useCallback((id: string) => setFilesState(prev => prev.filter(f => f.id !== id)), []);
-
-  const moveFileUp = useCallback((id: string) => {
-    setFilesState(prev => {
-      const idx = prev.findIndex(f => f.id === id);
-      if (idx <= 0) return prev;
-      const next = [...prev];
-      [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-      return next;
-    });
-  }, []);
-
-  const moveFileDown = useCallback((id: string) => {
-    setFilesState(prev => {
-      const idx = prev.findIndex(f => f.id === id);
-      if (idx < 0 || idx >= prev.length - 1) return prev;
-      const next = [...prev];
-      [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-      return next;
-    });
-  }, []);
-
-  const setPages = useCallback((p: PageImage[]) => setPagesState(p), []);
+  // Optimized: Uses functional updates to prevent UI lag during selection toggles
   const togglePageSelection = useCallback((id: string) => {
-    setPagesState(prev => prev.map(p => p.id === id ? { ...p, selected: !p.selected } : p));
+    setPages(prev => prev.map(page => 
+      page.id === id ? { ...page, selected: !page.selected } : page
+    ));
   }, []);
-  const selectAll = useCallback(() => setPagesState(prev => prev.map(p => ({ ...p, selected: true }))), []);
-  const deselectAll = useCallback(() => setPagesState(prev => prev.map(p => ({ ...p, selected: false }))), []);
-  const invertSelection = useCallback(() => setPagesState(prev => prev.map(p => ({ ...p, selected: !p.selected }))), []);
 
-  const setLayoutSettings = useCallback((s: Partial<LayoutSettings>) => setLayoutState(prev => ({ ...prev, ...s })), []);
-  const setEnhancementSettings = useCallback((s: Partial<EnhancementSettings>) => setEnhancementState(prev => ({ ...prev, ...s })), []);
+  const selectAll = useCallback(() => {
+    setPages(prev => prev.map(p => ({ ...p, selected: true })));
+  }, []);
+
+  const deselectAll = useCallback(() => {
+    setPages(prev => prev.map(p => ({ ...p, selected: false })));
+  }, []);
+
+  const invertSelection = useCallback(() => {
+    setPages(prev => prev.map(p => ({ ...p, selected: !p.selected })));
+  }, []);
+
+  const updateLayout = useCallback((settings: Partial<LayoutSettings>) => {
+    setLayoutSettings(prev => ({ ...prev, ...settings }));
+  }, []);
+
+  const updateEnhancement = useCallback((settings: Partial<EnhancementSettings>) => {
+    setEnhancementSettings(prev => ({ ...prev, ...settings }));
+  }, []);
+
+  const toggleDarkMode = useCallback(() => setDarkMode(prev => !prev), []);
 
   const addToast = useCallback((type: Toast['type'], message: string) => {
     const id = crypto.randomUUID();
     setToasts(prev => [...prev, { id, type, message }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   }, []);
-  const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
 
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Optimized: Rigorous memory cleanup to free browser RAM
   const resetApp = useCallback(() => {
-    pages.forEach(p => {
-      URL.revokeObjectURL(p.thumbnailUrl);
-      URL.revokeObjectURL(p.fullUrl);
+    pages.forEach(page => {
+      if (page.thumbnailUrl) URL.revokeObjectURL(page.thumbnailUrl);
+      if (page.fullUrl) URL.revokeObjectURL(page.fullUrl);
     });
-    _setStep(1);
-    setMaxStep(1);
-    setFilesState([]);
-    setPagesState([]);
-    setLayoutState(defaultLayout);
-    setEnhancementState(defaultEnhancement);
+    
+    setPages([]);
+    setFiles([]);
+    setStep(1);
     setProcessing(false);
     setProcessProgress(0);
     setProcessMessage('');
     setFinalBlob(null);
   }, [pages]);
 
-  return (
-    <AppContext.Provider value={{
-      step, maxStep, darkMode, files, pages, layoutSettings, enhancementSettings, toasts,
-      processing, processProgress, processMessage, outputFormat, finalBlob,
-      setStep, toggleDarkMode, setFiles, addFiles, removeFile, moveFileUp, moveFileDown,
-      setPages, togglePageSelection, selectAll, deselectAll, invertSelection,
-      setLayoutSettings, setEnhancementSettings, addToast, removeToast,
-      setProcessing, setProcessProgress, setProcessMessage, setOutputFormat,
-      setFinalBlob, resetApp,
-    }}>
-      {children}
-    </AppContext.Provider>
-  );
-}
+  const value = {
+    step, setStep,
+    pages, addPages,
+    files, setFiles,
+    togglePageSelection, selectAll, deselectAll, invertSelection,
+    layoutSettings, updateLayout,
+    enhancementSettings, updateEnhancement,
+    outputFormat, setOutputFormat,
+    darkMode, toggleDarkMode,
+    toasts, addToast, removeToast,
+    processing, setProcessing,
+    processProgress, setProcessProgress,
+    processMessage, setProcessMessage,
+    finalBlob, setFinalBlob,
+    resetApp,
+  };
 
-export function useApp() {
-  const ctx = useContext(AppContext);
-  if (!ctx) throw new Error('useApp must be inside AppProvider');
-  return ctx;
-}
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+};
+
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (context === undefined) {
+    throw new Error('useApp must be used within an AppProvider');
+  }
+  return context;
+};

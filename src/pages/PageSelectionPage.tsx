@@ -7,6 +7,8 @@ export function PageSelectionPage() {
   const { pages, togglePageSelection, selectAll, deselectAll, invertSelection, setStep, addToast } = useApp();
 
   const selectedCount = pages.filter(p => p.selected).length;
+  // Performance optimization: disable heavy staggered animations for large PDFs
+  const isLargeDocument = pages.length > 30;
 
   const handleContinue = () => {
     if (selectedCount === 0) {
@@ -19,7 +21,6 @@ export function PageSelectionPage() {
   return (
     <PageTransition>
       <div className="max-w-6xl mx-auto px-4 pb-12">
-        {/* Header */}
         <motion.div
           className="text-center py-6"
           initial={{ opacity: 0, y: 20 }}
@@ -33,7 +34,6 @@ export function PageSelectionPage() {
           </p>
         </motion.div>
 
-        {/* Toolbar */}
         <motion.div
           className="glass-card rounded-xl px-4 py-3 flex flex-wrap items-center gap-3 mb-6"
           initial={{ opacity: 0, y: 10 }}
@@ -42,19 +42,19 @@ export function PageSelectionPage() {
         >
           <button
             onClick={selectAll}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-primary-700 dark:text-primary-400 bg-primary-100 dark:bg-primary-500/10 hover:bg-primary-200 dark:hover:bg-primary-500/20 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-primary-700 dark:text-primary-400 bg-primary-100 dark:bg-primary-500/10 hover:bg-primary-200 transition-colors cursor-pointer"
           >
             <CheckSquare className="w-4 h-4" /> Select All
           </button>
           <button
             onClick={deselectAll}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 transition-colors cursor-pointer"
           >
             <Square className="w-4 h-4" /> Deselect All
           </button>
           <button
             onClick={invertSelection}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-purple-700 dark:text-purple-400 bg-purple-100 dark:bg-purple-500/10 hover:bg-purple-200 dark:hover:bg-purple-500/20 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-purple-700 dark:text-purple-400 bg-purple-100 dark:bg-purple-500/10 hover:bg-purple-200 transition-colors cursor-pointer"
           >
             <ToggleLeft className="w-4 h-4" /> Invert
           </button>
@@ -65,67 +65,57 @@ export function PageSelectionPage() {
           </div>
         </motion.div>
 
-        {/* Page Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {pages.map((page, index) => (
-            <motion.div
-              key={page.id}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: Math.min(index * 0.03, 0.5), duration: 0.3 }}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => togglePageSelection(page.id)}
-              className={`relative rounded-xl overflow-hidden cursor-pointer transition-all duration-200 ${
-                page.selected
-                  ? 'ring-2 ring-primary-500 shadow-lg shadow-primary-500/20'
-                  : 'ring-1 ring-gray-200 dark:ring-gray-700 opacity-50'
-              }`}
-            >
-              {/* Thumbnail */}
-              <div className="aspect-[3/4] bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                <img
-                  src={page.thumbnailUrl}
-                  alt={`Page ${page.pageNumber}`}
-                  className={`w-full h-full object-contain transition-all duration-200 ${
-                    !page.selected ? 'grayscale' : ''
-                  }`}
-                  loading="lazy"
-                />
-              </div>
+          {pages.map((page, index) => {
+            const motionProps = isLargeDocument ? {} : {
+              initial: { opacity: 0, scale: 0.8 },
+              animate: { opacity: 1, scale: 1 },
+              transition: { delay: Math.min(index * 0.02, 0.3), duration: 0.2 },
+              whileHover: { scale: 1.03 },
+              whileTap: { scale: 0.97 }
+            };
 
-              {/* Selection indicator */}
-              <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${
-                page.selected
-                  ? 'bg-primary-500 text-white'
-                  : 'bg-gray-800/50 text-white'
-              }`}>
-                {page.selected ? (
-                  <CheckCircle className="w-4 h-4" />
-                ) : (
-                  <X className="w-4 h-4" />
-                )}
-              </div>
+            return (
+              <motion.div
+                key={page.id}
+                {...motionProps}
+                onClick={() => togglePageSelection(page.id)}
+                className={`relative rounded-xl overflow-hidden cursor-pointer transition-all duration-200 ${
+                  page.selected
+                    ? 'ring-2 ring-primary-500 shadow-lg shadow-primary-500/20'
+                    : 'ring-1 ring-gray-200 dark:ring-gray-700 opacity-50 hover:opacity-80'
+                }`}
+              >
+                <div className="aspect-[3/4] bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                  <img
+                    src={page.thumbnailUrl}
+                    alt={`Page ${page.pageNumber}`}
+                    className={`w-full h-full object-contain transition-all duration-200 ${
+                      !page.selected ? 'grayscale' : ''
+                    }`}
+                    loading="lazy"
+                  />
+                </div>
 
-              {/* Label */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
-                <p className="text-white text-xs font-medium truncate">
-                  Page {page.pageNumber}
-                </p>
-                <p className="text-white/60 text-[10px] truncate">
-                  {page.sourceFile}
-                </p>
-              </div>
-            </motion.div>
-          ))}
+                <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                  page.selected ? 'bg-primary-500 text-white' : 'bg-gray-800/50 text-white'
+                }`}>
+                  {page.selected ? <CheckCircle className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                </div>
+
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                  <p className="text-white text-xs font-medium truncate">Page {page.pageNumber}</p>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
 
-        {/* Continue Button */}
         <motion.div
           className="mt-8 text-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.2 }}
         >
           <motion.button
             onClick={handleContinue}

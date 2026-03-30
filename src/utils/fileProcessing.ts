@@ -1,7 +1,7 @@
 import type { PageImage } from '../types';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js worker
+// Configure PDF.js worker for background processing
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 function generateId(): string {
@@ -15,8 +15,13 @@ function createThumbnail(img: HTMLImageElement | HTMLCanvasElement, maxSize = 30
   const scale = Math.min(maxSize / w, maxSize / h, 1);
   canvas.width = w * scale;
   canvas.height = h * scale;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', { alpha: false })!;
+  
+  // Fill background white for JPEG conversion
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  
   return canvas.toDataURL('image/jpeg', 0.6);
 }
 
@@ -29,38 +34,59 @@ export async function extractPagesFromPDF(
   const totalPages = pdf.numPages;
   const pages: PageImage[] = [];
 
-  for (let i = 1; i <= totalPages; i++) {
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d')!;
-    await page.render({ canvasContext: ctx, viewport }).promise;
+  const BATCH_SIZE = 5; // Process 5 pages at a time to prevent UI freezing
+  let processedCount = 0;
 
-    const blob = await new Promise<Blob>((resolve) =>
-      canvas.toBlob((b) => resolve(b!), 'image/png')
-    );
+  for (let i = 1; i <= totalPages; i += BATCH_SIZE) {
+    const batch = [];
+    
+    for (let j = i; j < i + BATCH_SIZE && j <= totalPages; j++) {
+      batch.push(
+        (async () => {
+          const page = await pdf.getPage(j);
+          const viewport = page.getViewport({ scale: 2 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          
+          // alpha: false optimizes rendering speed
+          const ctx = canvas.getContext('2d', { alpha: false })!;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          await page.render({ canvasContext: ctx, viewport }).promise;
 
-    const thumbUrl = createThumbnail(canvas);
-    const fullUrl = URL.createObjectURL(blob);
+          // Encode as JPEG to save memory
+          const blob = await new Promise<Blob>((resolve) =>
+            canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85)
+          );
 
-    pages.push({
-      id: generateId(),
-      blob,
-      thumbnailUrl: thumbUrl,
-      fullUrl,
-      width: viewport.width,
-      height: viewport.height,
-      sourceFile: file.name,
-      pageNumber: i,
-      selected: true,
-    });
+          const thumbUrl = createThumbnail(canvas);
+          const fullUrl = URL.createObjectURL(blob);
 
-    onProgress?.(i, totalPages);
+          processedCount++;
+          if (onProgress) onProgress(processedCount, totalPages);
+
+          return {
+            id: generateId(),
+            blob,
+            thumbnailUrl: thumbUrl,
+            fullUrl,
+            width: viewport.width,
+            height: viewport.height,
+            sourceFile: file.name,
+            pageNumber: j,
+            selected: true,
+          };
+        })()
+      );
+    }
+
+    const batchResults = await Promise.all(batch);
+    pages.push(...batchResults);
   }
 
-  return pages;
+  return pages.sort((a, b) => a.pageNumber - b.pageNumber);
 }
 
 export async function extractPagesFromImage(file: File): Promise<PageImage[]> {
@@ -70,7 +96,10 @@ export async function extractPagesFromImage(file: File): Promise<PageImage[]> {
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext('2d', { alpha: false })!;
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
 
       canvas.toBlob((blob) => {
@@ -92,7 +121,7 @@ export async function extractPagesFromImage(file: File): Promise<PageImage[]> {
           pageNumber: 1,
           selected: true,
         }]);
-      }, 'image/png');
+      }, 'image/jpeg', 0.85); // Switched to JPEG
     };
     img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
     img.src = URL.createObjectURL(file);
@@ -100,15 +129,12 @@ export async function extractPagesFromImage(file: File): Promise<PageImage[]> {
 }
 
 export async function extractPagesFromPPTX(file: File): Promise<PageImage[]> {
-  // For PPTX, we create a placeholder since full PPTX rendering in browser is very complex
-  // We'll create an informative placeholder page
   const pages: PageImage[] = [];
   const canvas = document.createElement('canvas');
   canvas.width = 960;
   canvas.height = 540;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', { alpha: false })!;
 
-  // Draw a styled placeholder
   ctx.fillStyle = '#1e1b4b';
   ctx.fillRect(0, 0, 960, 540);
   ctx.fillStyle = '#6366f1';
@@ -125,7 +151,7 @@ export async function extractPagesFromPPTX(file: File): Promise<PageImage[]> {
   ctx.fillText('PPTX content extracted as image', 480, 310);
 
   const blob = await new Promise<Blob>((resolve) =>
-    canvas.toBlob((b) => resolve(b!), 'image/png')
+    canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85)
   );
 
   const thumbUrl = createThumbnail(canvas);
