@@ -1,0 +1,52 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Modern Gradient: Deep Indigo to Vivid Violet -->
+    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+
+    <!-- Subtle Depth Shadow -->
+    <filter id="iconShadow" x="-20%" y="-10%" width="140%" height="140%" filterUnits="userSpaceOnUse">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dx="0" dy="12"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- Mask for the "Glass" effect overlay -->
+    <linearGradient id="glassOverlay" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="white" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="white" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Squircle (Production Standard Radius) -->
+  <rect x="48" y="48" width="416" height="416" rx="96" fill="#0f172a" />
+  
+  <!-- Content Group -->
+  <g filter="url(#iconShadow)">
+    <!-- Right Facet (Primary Color) -->
+    <path d="M 256 140 L 370 205 L 370 335 L 256 270 Z" fill="url(#mainGradient)" />
+    
+    <!-- Left Facet (Darker Tint for Depth) -->
+    <path d="M 256 140 L 142 205 L 142 335 L 256 270 Z" fill="#4f46e5" />
+    
+    <!-- Top Facet (Lighter Highlight) -->
+    <path d="M 256 140 L 370 205 L 256 270 L 142 205 Z" fill="#818cf8" />
+    
+    <!-- The "Bridge" / Connector Piece (Production Polish) -->
+    <path d="M 190 232 L 256 270 L 322 232 L 256 194 Z" fill="#0f172a" opacity="0.4" />
+    
+    <!-- Center Vertical Cutout for Modern Look -->
+    <rect x="252" y="200" width="8" height="140" rx="4" fill="#0f172a" opacity="0.2" />
+  </g>
+
+  <!-- Finishing Shine Layer -->
+  <rect x="48" y="48" width="416" height="416" rx="96" fill="url(#glassOverlay)" />
+</svg>
