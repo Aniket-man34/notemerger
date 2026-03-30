@@ -7,8 +7,7 @@ import {
   AlignVerticalSpaceAround, AlignHorizontalSpaceAround,
   Hash, ChevronRight, X, Settings2, Wand2, ChevronLeft
 } from 'lucide-react';
-import type { LayoutSettings } from '../types';
-import { applyEnhancements, hasAnyEnhancement } from '../utils/imageEnhancement';
+import type { LayoutSettings, EnhancementSettings } from '../types';
 
 const PAGE_SIZES: { value: LayoutSettings['pageSize']; label: string }[] = [
   { value: 'original', label: 'Original Size' },
@@ -18,10 +17,70 @@ const PAGE_SIZES: { value: LayoutSettings['pageSize']; label: string }[] = [
   { value: 'a3', label: 'A3 (297×420mm)' },
 ];
 
+/* ── Local Helpers for Live Preview ───────────────────────── */
+function hasAnyEnhancement(settings: EnhancementSettings) {
+  return settings.invert || settings.clearBackground || settings.grayscale || settings.blackAndWhite || !!settings.logoRemoval;
+}
+
+function applyPreviewEnhancements(canvas: HTMLCanvasElement, settings: EnhancementSettings) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+
+  if (settings.grayscale || settings.blackAndWhite || settings.invert) {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i];
+      let g = data[i + 1];
+      let b = data[i + 2];
+
+      if (settings.grayscale || settings.blackAndWhite) {
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (settings.blackAndWhite) {
+          const v = gray > (settings.bwThreshold || 150) ? 255 : 0;
+          r = g = b = v;
+        } else {
+          r = g = b = gray;
+        }
+      }
+
+      if (settings.invert) {
+        r = 255 - r;
+        g = 255 - g;
+        b = 255 - b;
+      }
+
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  const logo = settings.logoRemoval;
+  if (logo) {
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; 
+    if (logo.shape === 'rectangle') {
+      ctx.fillRect(logo.x, logo.y, logo.width, logo.height);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(
+        logo.x + logo.width / 2,
+        logo.y + logo.height / 2,
+        logo.width / 2,
+        logo.height / 2,
+        0, 0, Math.PI * 2
+      );
+      ctx.fill();
+    }
+  }
+}
+
 export function EnhancementPage() {
   const {
-    layoutSettings, setLayoutSettings,
-    enhancementSettings, setEnhancementSettings,
+    layoutSettings, updateLayout,
+    enhancementSettings, updateEnhancement,
     pages, setStep, addToast
   } = useApp();
 
@@ -91,13 +150,12 @@ export function EnhancementPage() {
               <Settings2 className="w-5 h-5 text-primary-500" /> Layout Options
             </h3>
 
-            {/* Page Size */}
             <div className="mb-5">
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Document Size</label>
               <select
                 value={layoutSettings.pageSize}
-                onChange={(e) => setLayoutSettings({ pageSize: e.target.value as LayoutSettings['pageSize'] })}
-                className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-sm focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+                onChange={(e) => updateLayout({ pageSize: e.target.value as LayoutSettings['pageSize'] })}
+                className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-sm focus:ring-2 focus:ring-primary-500 outline-none transition-all cursor-pointer"
               >
                 {PAGE_SIZES.map(s => (
                   <option key={s.value} value={s.value}>{s.label}</option>
@@ -105,15 +163,14 @@ export function EnhancementPage() {
               </select>
             </div>
 
-            {/* Orientation */}
             <div className="mb-5">
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Orientation</label>
               <div className="flex gap-2">
                 {(['portrait', 'landscape'] as const).map(o => (
                   <button
                     key={o}
-                    onClick={() => setLayoutSettings({ orientation: o })}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                    onClick={() => updateLayout({ orientation: o })}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                       layoutSettings.orientation === o
                         ? 'bg-primary-500 text-white shadow-md'
                         : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
@@ -130,7 +187,6 @@ export function EnhancementPage() {
               </div>
             </div>
 
-            {/* Grid */}
             <div className="mb-5">
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Slides Per Page</label>
               <div className="grid grid-cols-2 gap-3">
@@ -140,8 +196,8 @@ export function EnhancementPage() {
                     {[1, 2, 3, 4].map(n => (
                       <button
                         key={n}
-                        onClick={() => setLayoutSettings({ rows: n })}
-                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                        onClick={() => updateLayout({ rows: n })}
+                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                           layoutSettings.rows === n
                             ? 'bg-primary-500 text-white'
                             : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
@@ -158,8 +214,8 @@ export function EnhancementPage() {
                     {[1, 2, 3, 4].map(n => (
                       <button
                         key={n}
-                        onClick={() => setLayoutSettings({ cols: n })}
-                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                        onClick={() => updateLayout({ cols: n })}
+                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                           layoutSettings.cols === n
                             ? 'bg-primary-500 text-white'
                             : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
@@ -176,15 +232,14 @@ export function EnhancementPage() {
               </p>
             </div>
 
-            {/* Page Numbers */}
             <div className="mb-5">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                   <Hash className="w-4 h-4" /> Page Numbers
                 </label>
                 <button
-                  onClick={() => setLayoutSettings({ pageNumbers: !layoutSettings.pageNumbers })}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                  onClick={() => updateLayout({ pageNumbers: !layoutSettings.pageNumbers })}
+                  className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
                     layoutSettings.pageNumbers ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-600'
                   }`}
                 >
@@ -210,8 +265,8 @@ export function EnhancementPage() {
                         {(['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'] as const).map(pos => (
                           <button
                             key={pos}
-                            onClick={() => setLayoutSettings({ pageNumberPosition: pos })}
-                            className={`py-1.5 px-2 rounded-lg text-[10px] font-medium transition-all ${
+                            onClick={() => updateLayout({ pageNumberPosition: pos })}
+                            className={`py-1.5 px-2 rounded-lg text-[10px] font-medium transition-all cursor-pointer ${
                               layoutSettings.pageNumberPosition === pos
                                 ? 'bg-primary-500 text-white'
                                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
@@ -227,8 +282,8 @@ export function EnhancementPage() {
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Size</label>
                         <select
                           value={layoutSettings.pageNumberSize}
-                          onChange={(e) => setLayoutSettings({ pageNumberSize: e.target.value as 'small' | 'medium' | 'large' })}
-                          className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm outline-none text-gray-800 dark:text-gray-200"
+                          onChange={(e) => updateLayout({ pageNumberSize: e.target.value as 'small' | 'medium' | 'large' })}
+                          className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm outline-none text-gray-800 dark:text-gray-200 cursor-pointer"
                         >
                           <option value="small">Small</option>
                           <option value="medium">Medium</option>
@@ -241,7 +296,7 @@ export function EnhancementPage() {
                           type="number"
                           min={1}
                           value={layoutSettings.startingNumber}
-                          onChange={(e) => setLayoutSettings({ startingNumber: parseInt(e.target.value) || 1 })}
+                          onChange={(e) => updateLayout({ startingNumber: parseInt(e.target.value) || 1 })}
                           className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm outline-none text-gray-800 dark:text-gray-200"
                         />
                       </div>
@@ -251,7 +306,6 @@ export function EnhancementPage() {
               </AnimatePresence>
             </div>
 
-            {/* Live Preview */}
             <LayoutPreview layout={layoutSettings} selectedCount={selectedCount} />
           </motion.div>
 
@@ -272,7 +326,7 @@ export function EnhancementPage() {
                 title="Invert Colors"
                 desc="Convert dark backgrounds to light"
                 active={enhancementSettings.invert}
-                onToggle={() => setEnhancementSettings({ invert: !enhancementSettings.invert })}
+                onToggle={() => updateEnhancement({ invert: !enhancementSettings.invert })}
                 color="from-indigo-500 to-purple-500"
               />
               <EnhanceToggle
@@ -280,7 +334,7 @@ export function EnhancementPage() {
                 title="Clear Background"
                 desc="Remove noise and shadows"
                 active={enhancementSettings.clearBackground}
-                onToggle={() => setEnhancementSettings({ clearBackground: !enhancementSettings.clearBackground })}
+                onToggle={() => updateEnhancement({ clearBackground: !enhancementSettings.clearBackground })}
                 color="from-blue-500 to-cyan-500"
               />
               <EnhanceToggle
@@ -288,7 +342,7 @@ export function EnhancementPage() {
                 title="Grayscale"
                 desc="Convert to grayscale"
                 active={enhancementSettings.grayscale}
-                onToggle={() => setEnhancementSettings({ grayscale: !enhancementSettings.grayscale })}
+                onToggle={() => updateEnhancement({ grayscale: !enhancementSettings.grayscale })}
                 color="from-gray-500 to-gray-700"
               />
               <EnhanceToggle
@@ -296,7 +350,7 @@ export function EnhancementPage() {
                 title="Black & White"
                 desc="Pure B&W with thresholding"
                 active={enhancementSettings.blackAndWhite}
-                onToggle={() => setEnhancementSettings({ blackAndWhite: !enhancementSettings.blackAndWhite })}
+                onToggle={() => updateEnhancement({ blackAndWhite: !enhancementSettings.blackAndWhite })}
                 color="from-gray-800 to-black"
               />
 
@@ -315,18 +369,17 @@ export function EnhancementPage() {
                     min={0}
                     max={255}
                     value={enhancementSettings.bwThreshold}
-                    onChange={(e) => setEnhancementSettings({ bwThreshold: parseInt(e.target.value) })}
-                    className="w-full accent-primary-500"
+                    onChange={(e) => updateEnhancement({ bwThreshold: parseInt(e.target.value) })}
+                    className="w-full accent-primary-500 cursor-pointer"
                   />
                 </motion.div>
               )}
 
-              {/* Logo Removal */}
               <motion.button
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
                 onClick={() => setShowLogoModal(true)}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
+                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer ${
                   enhancementSettings.logoRemoval
                     ? 'bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30'
                     : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 hover:border-primary-300'
@@ -348,15 +401,14 @@ export function EnhancementPage() {
                 <ChevronRight className="w-4 h-4 text-gray-400" />
               </motion.button>
 
-              {/* DPI */}
               <div className="mt-4">
                 <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   <ZoomIn className="w-4 h-4" /> Output DPI
                 </label>
                 <select
                   value={enhancementSettings.dpi}
-                  onChange={(e) => setEnhancementSettings({ dpi: parseInt(e.target.value) })}
-                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                  onChange={(e) => updateEnhancement({ dpi: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-sm focus:ring-2 focus:ring-primary-500 outline-none cursor-pointer"
                 >
                   {[72, 90, 150, 300, 600].map(d => (
                     <option key={d} value={d}>{d} DPI</option>
@@ -368,12 +420,10 @@ export function EnhancementPage() {
               </div>
             </div>
 
-            {/* Live Enhancement Preview */}
             <EnhancementPreview />
           </motion.div>
         </div>
 
-        {/* Process Button */}
         <motion.div className="mt-8 text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
           <motion.button
             onClick={handleContinue}
@@ -385,7 +435,6 @@ export function EnhancementPage() {
           </motion.button>
         </motion.div>
 
-        {/* Logo Removal Modal */}
         <AnimatePresence>
           {showLogoModal && (
             <LogoRemovalModal onClose={() => setShowLogoModal(false)} />
@@ -412,9 +461,9 @@ function EnhanceToggle({
       whileHover={{ scale: 1.01 }}
       whileTap={{ scale: 0.99 }}
       onClick={onToggle}
-      className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
+      className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer ${
         active
-          ? `bg-gradient-to-r ${color.replace('from-', 'from-').replace('to-', 'to-')}/10 border border-primary-500/30`
+          ? `bg-gradient-to-r ${color}/10 border border-primary-500/30`
           : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 hover:border-primary-300'
       }`}
     >
@@ -464,7 +513,7 @@ function LayoutPreview({ layout, selectedCount }: { layout: LayoutSettings; sele
 
   const pnPos = useMemo(() => {
     if (!layout.pageNumbers) return null;
-    const pos = layout.pageNumberPosition;
+    const pos = String(layout.pageNumberPosition);
     let x = pageW / 2;
     let y = pageH - 8;
     let anchor: 'middle' | 'start' | 'end' = 'middle';
@@ -545,23 +594,26 @@ function EnhancementPreview() {
       const scale = Math.min(maxSize / img.naturalWidth, maxSize / img.naturalHeight, 1);
       canvas.width = Math.round(img.naturalWidth * scale);
       canvas.height = Math.round(img.naturalHeight * scale);
-      const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
       if (hasAnyEnhancement(enhancementSettings)) {
         const previewSettings = { ...enhancementSettings };
-        if (previewSettings.logoRemoval && firstPage) {
+        const lr = previewSettings.logoRemoval;
+        if (lr && firstPage) {
           const sx = canvas.width / firstPage.width;
           const sy = canvas.height / firstPage.height;
           previewSettings.logoRemoval = {
-            ...previewSettings.logoRemoval,
-            x: previewSettings.logoRemoval.x * sx,
-            y: previewSettings.logoRemoval.y * sy,
-            width: previewSettings.logoRemoval.width * sx,
-            height: previewSettings.logoRemoval.height * sy,
+            ...lr,
+            x: lr.x * sx,
+            y: lr.y * sy,
+            width: lr.width * sx,
+            height: lr.height * sy,
           };
         }
-        applyEnhancements(canvas, previewSettings);
+        applyPreviewEnhancements(canvas, previewSettings);
       }
     };
     img.src = firstPage.fullUrl;
@@ -598,7 +650,7 @@ const HANDLE_SIZE = 10;
 type HandleType = 'tl' | 't' | 'tr' | 'l' | 'r' | 'bl' | 'b' | 'br';
 
 function LogoRemovalModal({ onClose }: { onClose: () => void }) {
-  const { enhancementSettings, setEnhancementSettings, pages } = useApp();
+  const { enhancementSettings, updateEnhancement, pages } = useApp();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [shape, setShape] = useState<'rectangle' | 'circle'>(
@@ -609,16 +661,13 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
   );
   const [previewIdx, setPreviewIdx] = useState(0);
 
-  // Canvas display size (set when image loads)
   const [canvasSize, setCanvasSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const loadedImgRef = useRef<HTMLImageElement | null>(null);
 
-  // Drag state
   const [dragMode, setDragMode] = useState<'idle' | 'drawing' | 'resizing' | 'moving'>('idle');
   const [activeHandle, setActiveHandle] = useState<HandleType | null>(null);
   const [hoverCursor, setHoverCursor] = useState('crosshair');
 
-  // Move offsets
   const dragStartRef = useRef<{ cursor: { x: number; y: number }; selStart: { x: number; y: number }; selEnd: { x: number; y: number } } | null>(null);
 
   const [selStart, setSelStart] = useState<{ x: number; y: number } | null>(null);
@@ -628,7 +677,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
   const selectedPages = pages.filter(p => p.selected);
   const currentPage = selectedPages[previewIdx];
 
-  /* ---------- load image when page changes ---------- */
   useEffect(() => {
     if (!currentPage) return;
     const img = new Image();
@@ -645,7 +693,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     img.src = currentPage.fullUrl;
   }, [currentPage]);
 
-  /* ---------- restore existing selection once ---------- */
   useEffect(() => {
     if (hasRestoredRef.current || !enhancementSettings.logoRemoval || !currentPage || canvasSize.w === 0) return;
     hasRestoredRef.current = true;
@@ -656,7 +703,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     setSelEnd({ x: (lr.x + lr.width) * sx, y: (lr.y + lr.height) * sy });
   }, [canvasSize, currentPage, enhancementSettings.logoRemoval]);
 
-  /* ---------- get handles coordinates ---------- */
   const getHandlesPos = (x: number, y: number, w: number, h: number) => ({
     tl: { x, y, cursor: 'nwse-resize' },
     t: { x: x + w / 2, y, cursor: 'ns-resize' },
@@ -677,7 +723,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
 
     if (w <= 5 || h <= 5) return null;
 
-    // Check handles first
     const handles = getHandlesPos(x, y, w, h);
     for (const [key, handle] of Object.entries(handles)) {
       if (Math.abs(pos.x - handle.x) <= HANDLE_SIZE && Math.abs(pos.y - handle.y) <= HANDLE_SIZE) {
@@ -685,7 +730,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
       }
     }
 
-    // Check inside shape for moving
     if (pos.x >= x && pos.x <= x + w && pos.y >= y && pos.y <= y + h) {
       return { type: 'inside', cursor: 'move' };
     }
@@ -693,7 +737,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     return null;
   };
 
-  /* ---------- draw canvas ---------- */
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const img = loadedImgRef.current;
@@ -701,7 +744,9 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
 
     canvas.width = canvasSize.w;
     canvas.height = canvasSize.h;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
     ctx.drawImage(img, 0, 0, canvasSize.w, canvasSize.h);
 
     if (selStart && selEnd) {
@@ -711,11 +756,9 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
       const h = Math.abs(selEnd.y - selStart.y);
 
       if (w > 2 && h > 2) {
-        // Dim the whole image
         ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
         ctx.fillRect(0, 0, canvasSize.w, canvasSize.h);
 
-        // Cut out the selected region
         ctx.save();
         ctx.beginPath();
         if (shape === 'rectangle') {
@@ -727,7 +770,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
         ctx.drawImage(img, 0, 0, canvasSize.w, canvasSize.h);
         ctx.restore();
 
-        // Draw border
         ctx.setLineDash([6, 4]);
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#ef4444';
@@ -740,7 +782,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
         }
         ctx.setLineDash([]);
 
-        // Draw Resize Handles
         const handles = getHandlesPos(x, y, w, h);
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = '#3b82f6';
@@ -759,7 +800,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     drawCanvas();
   }, [drawCanvas]);
 
-  /* ---------- pointer handlers ---------- */
   const getCanvasPos = (e: React.PointerEvent): { x: number; y: number } | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -779,7 +819,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     
     if (hit?.type === 'handle') {
       setDragMode('resizing');
-      setActiveHandle(hit.key!);
+      setActiveHandle(hit.key as HandleType);
     } else if (hit?.type === 'inside') {
       setDragMode('moving');
       dragStartRef.current = { cursor: pos, selStart: { ...selStart! }, selEnd: { ...selEnd! } };
@@ -810,10 +850,11 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
       let newEndX = selEnd.x;
       let newEndY = selEnd.y;
 
-      if (activeHandle.includes('l')) newStartX = Math.min(pos.x, newEndX - minSize);
-      if (activeHandle.includes('r')) newEndX = Math.max(pos.x, newStartX + minSize);
-      if (activeHandle.includes('t')) newStartY = Math.min(pos.y, newEndY - minSize);
-      if (activeHandle.includes('b')) newEndY = Math.max(pos.y, newStartY + minSize);
+      const handleStr = String(activeHandle);
+      if (handleStr.includes('l')) newStartX = Math.min(pos.x, newEndX - minSize);
+      if (handleStr.includes('r')) newEndX = Math.max(pos.x, newStartX + minSize);
+      if (handleStr.includes('t')) newStartY = Math.min(pos.y, newEndY - minSize);
+      if (handleStr.includes('b')) newEndY = Math.max(pos.y, newStartY + minSize);
 
       setSelStart({ x: newStartX, y: newStartY });
       setSelEnd({ x: newEndX, y: newEndY });
@@ -826,7 +867,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
       let newEndX = dragStartRef.current.selEnd.x + dx;
       let newEndY = dragStartRef.current.selEnd.y + dy;
 
-      // Keep inside canvas bounds
       const minX = Math.min(newStartX, newEndX);
       const maxX = Math.max(newStartX, newEndX);
       const minY = Math.min(newStartY, newEndY);
@@ -843,7 +883,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
   };
 
   const handlePointerUp = () => {
-    // If the user just clicked without dragging, clear the selection
     if (dragMode === 'drawing' && selStart && selEnd) {
       const w = Math.abs(selEnd.x - selStart.x);
       const h = Math.abs(selEnd.y - selStart.y);
@@ -867,7 +906,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // Allow pressing ESC key to cancel/clear the selection
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -879,7 +917,6 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  /* ---------- apply / clear / cancel ---------- */
   const selectionValid =
     selStart && selEnd && Math.abs(selEnd.x - selStart.x) > 3 && Math.abs(selEnd.y - selStart.y) > 3;
 
@@ -893,7 +930,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
     const sx = currentPage.width / canvasSize.w;
     const sy = currentPage.height / canvasSize.h;
 
-    setEnhancementSettings({
+    updateEnhancement({
       logoRemoval: {
         shape, x: x * sx, y: y * sy, width: w * sx, height: h * sy, applyTo, customRange: '',
       },
@@ -903,12 +940,10 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
 
   const handleClearAction = () => {
     if (selStart && selEnd) {
-      // Just clear the current shape to try again
       setSelStart(null);
       setSelEnd(null);
     } else {
-      // Remove the effect entirely and close
-      setEnhancementSettings({ logoRemoval: null });
+      updateEnhancement({ logoRemoval: null });
       onClose();
     }
   };
@@ -930,7 +965,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">Remove Logo / Watermark</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -958,7 +993,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => setPreviewIdx((p) => Math.max(0, p - 1))}
               disabled={previewIdx === 0}
-              className="p-1 rounded-lg bg-gray-100 dark:bg-gray-800 disabled:opacity-30"
+              className="p-1 rounded-lg bg-gray-100 dark:bg-gray-800 disabled:opacity-30 cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -968,7 +1003,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => setPreviewIdx((p) => Math.min(selectedPages.length - 1, p + 1))}
               disabled={previewIdx >= selectedPages.length - 1}
-              className="p-1 rounded-lg bg-gray-100 dark:bg-gray-800 disabled:opacity-30"
+              className="p-1 rounded-lg bg-gray-100 dark:bg-gray-800 disabled:opacity-30 cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -983,7 +1018,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
                 <button
                   key={s}
                   onClick={() => setShape(s)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                     shape === s
                       ? 'bg-primary-500 text-white'
                       : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
@@ -999,7 +1034,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
             <select
               value={applyTo}
               onChange={(e) => setApplyTo(e.target.value as 'all' | 'current' | 'custom')}
-              className="w-full px-2 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs outline-none text-gray-800 dark:text-gray-200"
+              className="w-full px-2 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs outline-none text-gray-800 dark:text-gray-200 cursor-pointer"
             >
               <option value="all">All Pages</option>
               <option value="current">Current Page</option>
@@ -1017,7 +1052,7 @@ function LogoRemovalModal({ onClose }: { onClose: () => void }) {
         <div className="flex gap-3">
           <button
             onClick={handleClearAction}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors cursor-pointer"
           >
             {selStart && selEnd ? 'Clear Selection' : 'Cancel'}
           </button>
